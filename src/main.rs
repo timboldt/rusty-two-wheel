@@ -18,30 +18,34 @@ use stm32f1xx_hal::{pac, prelude::*, timer::Timer};
 
 #[entry]
 fn main() -> ! {
-    // Get access to the core peripherals from the cortex-m crate
     let cp = cortex_m::Peripherals::take().unwrap();
-    // Get access to the device specific peripherals from the peripheral access crate
     let dp = pac::Peripherals::take().unwrap();
 
-    // Take ownership over the raw flash and rcc devices and convert them into the corresponding
-    // HAL structs
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
 
-    // Freeze the configuration of all the clocks in the system and store the frozen frequencies in
-    // `clocks`
-    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+    // Set up clock tree for maximum performance. 
+    // * 8MHz external crystal.
+    // * System clock at its maximum value of 72MHz.
+    // * APB1 peripheral clock restricted to its maximum value of 36MHz.
+    let clocks = rcc
+        .cfgr
+        .use_hse(8.mhz())
+        .sysclk(72.mhz())
+        .pclk1(36.mhz())
+        .freeze(&mut flash.acr);
 
-    // Acquire the GPIOC peripheral
+    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
+    let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
+    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
-    // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
-    // in order to configure the port. For pins 0-7, crl should be passed instead.
+    // User LED.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
-    // Configure the syst timer to trigger an update every second
+
+    // SYST timer.
     let mut timer = Timer::syst(cp.SYST, 1000.hz(), clocks);
 
-    // Wait for the timer to trigger an update and change the state of the LED
     let mut cnt = 0;
     loop {
         block!(timer.wait()).unwrap();
