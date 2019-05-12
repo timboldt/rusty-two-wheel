@@ -1,30 +1,34 @@
-//! Blinks an LED
-//!
-//! This assumes that a LED is connected to pc13 as is the case on the blue pill board.
-//!
-//! Note: Without additional hardware, PC13 should not be used to drive an LED, see page 5.1.2 of
-//! the reference manaual for an explanation. This is not an issue on the blue pill.
-
 #![deny(unsafe_code)]
+// #![deny(warnings)]
 #![no_std]
 #![no_main]
 
-use panic_halt as _;
+extern crate cortex_m;
+#[macro_use]
+extern crate cortex_m_rt as rt;
+extern crate cortex_m_semihosting as sh;
+extern crate panic_halt;
+extern crate stm32f1xx_hal as hal;
+#[macro_use(block)]
+extern crate nb;
 
-use nb::block;
+use crate::hal::delay::Delay;
+use crate::hal::i2c::BlockingI2c;
+use crate::hal::prelude::*;
+use crate::rt::entry;
+use crate::rt::ExceptionFrame;
 
-use cortex_m_rt::entry;
-use stm32f1xx_hal::{pac, prelude::*, timer::Timer};
+use core::fmt::Write;
 
 #[entry]
 fn main() -> ! {
     let cp = cortex_m::Peripherals::take().unwrap();
-    let dp = pac::Peripherals::take().unwrap();
+    let dp = hal::stm32::Peripherals::take().unwrap();
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
 
-    // Set up clock tree for maximum performance. 
+    // Set up clock tree for maximum performance.
     // * 8MHz external crystal.
     // * System clock at its maximum value of 72MHz.
     // * APB1 peripheral clock restricted to its maximum value of 36MHz.
@@ -44,7 +48,38 @@ fn main() -> ! {
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // SYST timer.
-    let mut timer = Timer::syst(cp.SYST, 1000.hz(), clocks);
+    let mut timer = hal::timer::Timer::syst(cp.SYST, 1000.hz(), clocks);
+
+    //=========================================================
+    // I2C Bus (for MPU 9250)
+    //=========================================================
+
+    let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+    let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+    let mut i2c = BlockingI2c::i2c2(
+        dp.I2C2,
+        (scl, sda),
+        hal::i2c::Mode::Fast {
+            frequency: 400_000,
+            duty_cycle: hal::i2c::DutyCycle::Ratio2to1,
+        },
+        clocks,
+        &mut rcc.apb1,
+        1_000,
+        2,
+        1_000,
+        1_000,
+    );
+
+    let buffer: &mut [u8] = &mut [0u8; 1];
+    const MPU9250_DEVICE_ADDRESS: u8 = 0x68;
+    const MPU9250_RA_WHO_AM_I: u8 = 0x75;
+    i2c.write_read(MPU9250_DEVICE_ADDRESS, &[MPU9250_RA_WHO_AM_I], buffer)
+        .unwrap();
+    const MPU9250_WHOAMI_ID: u8 = 0x71;
+    if buffer[0] != MPU9250_WHOAMI_ID {
+        panic!("Invalid WHO_AM_I_ID.");
+    }
 
     let mut cnt = 0;
     loop {
@@ -56,4 +91,9 @@ fn main() -> ! {
             led.set_low();
         }
     }
+}
+
+#[exception]
+fn HardFault(ef: &ExceptionFrame) -> ! {
+    panic!("{:#?}", ef);
 }
