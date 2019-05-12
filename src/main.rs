@@ -7,7 +7,8 @@ extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
 extern crate cortex_m_semihosting as sh;
-extern crate panic_halt;
+extern crate jlink_rtt;
+extern crate panic_rtt;
 extern crate stm32f1xx_hal as hal;
 #[macro_use(block)]
 extern crate nb;
@@ -22,6 +23,8 @@ use core::fmt::Write;
 
 #[entry]
 fn main() -> ! {
+    let mut output = jlink_rtt::Output::new();
+
     let cp = cortex_m::Peripherals::take().unwrap();
     let dp = hal::stm32::Peripherals::take().unwrap();
 
@@ -71,6 +74,9 @@ fn main() -> ! {
         1_000,
     );
 
+    let mut mono = ::hal::time::MonoTimer::new(cp.DWT, clocks);
+    let start = mono.now();
+
     let buffer: &mut [u8] = &mut [0u8; 1];
     const MPU9250_DEVICE_ADDRESS: u8 = 0x68;
     const MPU9250_RA_WHO_AM_I: u8 = 0x75;
@@ -81,15 +87,21 @@ fn main() -> ! {
         panic!("Invalid WHO_AM_I_ID.");
     }
 
+    let elapsed = start.elapsed();
+    let _ = writeln!(output, "elapsed: {}", elapsed);
+
     let mut cnt = 0;
     loop {
         block!(timer.wait()).unwrap();
         cnt += 1;
+        let start = mono.now();
         if cnt % 200 == 0 {
             led.set_high();
         } else if cnt % 100 == 0 {
             led.set_low();
         }
+        let elapsed = start.elapsed();
+        let _ = writeln!(output, "elapsed: {}", elapsed);
     }
 }
 
