@@ -8,6 +8,8 @@ extern crate cortex_m;
 extern crate cortex_m_rt as rt;
 extern crate cortex_m_semihosting as sh;
 extern crate jlink_rtt;
+//extern crate madgwick;
+extern crate mpu9250_i2c;
 extern crate panic_rtt;
 extern crate stm32f1xx_hal as hal;
 #[macro_use(block)]
@@ -20,6 +22,8 @@ use crate::rt::entry;
 use crate::rt::ExceptionFrame;
 
 use core::fmt::Write;
+//use madgwick::{F32x3, Marg};
+use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 
 #[entry]
 fn main() -> ! {
@@ -51,12 +55,9 @@ fn main() -> ! {
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // SYST timer.
-    let mut timer = hal::timer::Timer::syst(cp.SYST, 1000.hz(), clocks);
+    //let mut timer = hal::timer::Timer::syst(cp.SYST, 1000.hz(), clocks);
 
-    //=========================================================
-    // I2C Bus (for MPU 9250)
-    //=========================================================
-
+    // MPU 9250 IMU
     let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
     let mut i2c = BlockingI2c::i2c2(
@@ -74,34 +75,32 @@ fn main() -> ! {
         1_000,
     );
 
-    let mut mono = ::hal::time::MonoTimer::new(cp.DWT, clocks);
-    let start = mono.now();
+    let cal = Calibration {
+        ..Default::default()
+    };
 
-    let buffer: &mut [u8] = &mut [0u8; 1];
-    const MPU9250_DEVICE_ADDRESS: u8 = 0x68;
-    const MPU9250_RA_WHO_AM_I: u8 = 0x75;
-    i2c.write_read(MPU9250_DEVICE_ADDRESS, &[MPU9250_RA_WHO_AM_I], buffer)
-        .unwrap();
-    const MPU9250_WHOAMI_ID: u8 = 0x71;
-    if buffer[0] != MPU9250_WHOAMI_ID {
-        panic!("Invalid WHO_AM_I_ID.");
-    }
-
-    let elapsed = start.elapsed();
-    let _ = writeln!(output, "elapsed: {}", elapsed);
+    let mpu = &mut Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
+    //let mut ahrs = Marg::new(0.3, 0.01);
 
     let mut cnt = 0;
     loop {
-        block!(timer.wait()).unwrap();
+        //block!(timer.wait()).unwrap();
         cnt += 1;
-        let start = mono.now();
+        //let start = mono.now();
         if cnt % 200 == 0 {
             led.set_high();
+            let _ = writeln!(
+                output,
+                "angle: {} {} {}",
+                mpu.get_accel().unwrap().x,
+                mpu.get_accel().unwrap().y,
+                mpu.get_accel().unwrap().z
+            );
         } else if cnt % 100 == 0 {
             led.set_low();
         }
-        let elapsed = start.elapsed();
-        let _ = writeln!(output, "elapsed: {}", elapsed);
+        //let elapsed = start.elapsed();
+        //let _ = writeln!(output, "elapsed: {}", elapsed);
     }
 }
 
