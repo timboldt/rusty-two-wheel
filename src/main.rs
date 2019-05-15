@@ -6,24 +6,25 @@
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
-extern crate cortex_m_semihosting as sh;
+// extern crate cortex_m_semihosting as sh;
 extern crate jlink_rtt;
-//extern crate madgwick;
+// extern crate madgwick;
 extern crate mpu9250_i2c;
-extern crate panic_rtt;
-extern crate stm32f1xx_hal as hal;
 #[macro_use(block)]
 extern crate nb;
+extern crate panic_rtt;
+extern crate pid;
+extern crate stm32f1xx_hal as hal;
 
 use crate::hal::delay::Delay;
 use crate::hal::i2c::BlockingI2c;
 use crate::hal::prelude::*;
-use crate::rt::entry;
-use crate::rt::ExceptionFrame;
+use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
 //use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
+use pid::Pid;
 
 #[entry]
 fn main() -> ! {
@@ -81,6 +82,8 @@ fn main() -> ! {
 
     let mpu = &mut Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
     //let mut ahrs = Marg::new(0.3, 0.01);
+
+    let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
 
     let mut cnt = 0;
     loop {
