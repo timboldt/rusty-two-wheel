@@ -27,18 +27,20 @@ extern crate mpu9250_i2c;
 #[macro_use(block)]
 extern crate nb;
 extern crate panic_rtt;
-extern crate pid;
+//extern crate pid;
 extern crate stm32f1xx_hal as hal;
 
-use crate::hal::delay::Delay;
+//use crate::hal::delay::Delay;
 use crate::hal::i2c::BlockingI2c;
+use crate::hal::time::MonoTimer;
+use crate::hal::timer::Timer;
 use crate::hal::prelude::*;
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
 //use madgwick::{F32x3, Marg};
-use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
-use pid::Pid;
+use mpu9250_i2c::{calibration::Calibration, Mpu9250}; //vector::Vector, 
+//use pid::Pid;
 
 #[entry]
 fn main() -> ! {
@@ -61,21 +63,22 @@ fn main() -> ! {
         .pclk1(36.mhz())
         .freeze(&mut flash.acr);
 
-    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
-    let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
+    //let afio = dp.AFIO.constrain(&mut rcc.apb2);
+    //let gpioa = dp.GPIOA.split(&mut rcc.apb2);
     let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
     // User LED.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // SYST timer.
-    //let mut timer = hal::timer::Timer::syst(cp.SYST, 1000.hz(), clocks);
+    // Use TIM1 as our periodic timer.
+    let mut timer = Timer::tim1(dp.TIM1, 10.hz(), clocks, &mut rcc.apb2);
+    let mono = MonoTimer::new(cp.DWT, clocks);
 
     // MPU 9250 IMU
     let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-    let mut i2c = BlockingI2c::i2c2(
+    let i2c = BlockingI2c::i2c2(
         dp.I2C2,
         (scl, sda),
         hal::i2c::Mode::Fast {
@@ -97,15 +100,15 @@ fn main() -> ! {
     let mpu = &mut Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
     //let mut ahrs = Marg::new(0.3, 0.01);
 
-    let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
+    //let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
 
     let mut cnt = 0;
     loop {
-        //block!(timer.wait()).unwrap();
+        //timer.start();
         cnt += 1;
-        //let start = mono.now();
+        let start = mono.now();
         if cnt % 200 == 0 {
-            led.set_high();
+            let _ = led.set_high();
             let _ = writeln!(
                 output,
                 "angle: {} {} {}",
@@ -114,10 +117,11 @@ fn main() -> ! {
                 mpu.get_accel().unwrap().z
             );
         } else if cnt % 100 == 0 {
-            led.set_low();
+            let _ = led.set_low();
         }
-        //let elapsed = start.elapsed();
-        //let _ = writeln!(output, "elapsed: {}", elapsed);
+        let elapsed = start.elapsed();
+        block!(timer.wait()).unwrap();
+        let _ = writeln!(output, "elapsed: {}", elapsed);
     }
 }
 
