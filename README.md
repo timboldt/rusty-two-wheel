@@ -2,7 +2,7 @@
 
 ### Disclaimer
 
-This is not an official Google product (experimental or otherwise).
+This is not an officially supported Google product.
 
 ### Introduction
 
