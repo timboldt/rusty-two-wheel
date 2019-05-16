@@ -1,5 +1,5 @@
 [package]
-authors = ["Tim Boldt <tim.boldt@gmail.com>", "Tim Boldt <tboldt@google.com>"]]
+authors = ["Tim Boldt <tim.boldt@gmail.com>", "Tim Boldt <tboldt@google.com>"]
 edition = "2018"
 readme = "README.md"
 name = "rusty-two-wheel"
