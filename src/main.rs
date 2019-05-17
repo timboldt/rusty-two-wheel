@@ -72,7 +72,7 @@ fn main() -> ! {
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // Use TIM1 as our periodic timer.
-    let mut timer = Timer::tim1(dp.TIM1, 10.hz(), clocks, &mut rcc.apb2);
+    let mut timer = Timer::tim1(dp.TIM1, 500.hz(), clocks, &mut rcc.apb2);
     let mono = MonoTimer::new(cp.DWT, clocks);
 
     // MPU 9250 IMU
@@ -107,16 +107,24 @@ fn main() -> ! {
         //timer.start();
         cnt += 1;
         let start = mono.now();
+
+        let (va, vg) = mpu.get_accel_gyro().unwrap();
+        let _ = writeln!(
+            output,
+            "a/g: {} {} {} {} {} {}",
+            va.x,
+            va.y,
+            va.z,
+            vg.x,
+            vg.y,
+            vg.z,
+        );
+
         if cnt % 200 == 0 {
+            #[allow(deprecated)]
             let _ = led.set_high();
-            let _ = writeln!(
-                output,
-                "angle: {} {} {}",
-                mpu.get_accel().unwrap().x,
-                mpu.get_accel().unwrap().y,
-                mpu.get_accel().unwrap().z
-            );
         } else if cnt % 100 == 0 {
+            #[allow(deprecated)]
             let _ = led.set_low();
         }
         let elapsed = start.elapsed();
