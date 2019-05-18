@@ -30,10 +30,7 @@ extern crate pid;
 extern crate stm32f1xx_hal as hal;
 
 //use crate::hal::delay::Delay;
-use crate::hal::i2c::BlockingI2c;
-use crate::hal::prelude::*;
-//use crate::hal::time::MonoTimer;
-use crate::hal::timer::Timer;
+use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, time::MonoTimer, timer::Timer};
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
@@ -107,6 +104,20 @@ fn main() -> ! {
     let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
 
     //=========================================================
+    // Wheel Encoders
+    //=========================================================
+
+    // TIM2
+    let c1 = gpioa.pa0;
+    let c2 = gpioa.pa1;
+    let left_encoder = Qei::tim2(dp.TIM2, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+
+    // TIM3
+    let c1 = gpioa.pa6;
+    let c2 = gpioa.pa7;
+    let right_encoder = Qei::tim3(dp.TIM3, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+
+    //=========================================================
     // MPU 9250 IMU (using I2C, for now)
     //=========================================================
 
@@ -161,6 +172,10 @@ fn main() -> ! {
         //     "a/g: {} {} {} {} {} {}",
         //     va.x, va.y, va.z, vg.x, vg.y, vg.z,
         // );
+
+        let left_odometer = left_encoder.count();
+        let right_odometer = right_encoder.count();
+        let _ = writeln!(output, "le/re: {} {}", left_odometer, right_odometer);
 
         let speed = left_motor.get_max_duty() / 2;
         left_motor.forward().duty(speed);
