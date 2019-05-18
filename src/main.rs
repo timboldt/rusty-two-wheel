@@ -45,7 +45,7 @@ use motor::Motor;
 fn main() -> ! {
     #[allow(unused_mut)]
     #[allow(unused_variables)]
-    let mut output = jlink_rtt::Output::new();
+    let mut output = jlink_rtt::NonBlockingOutput::new();
 
     let cp = cortex_m::Peripherals::take().unwrap();
     let dp = hal::stm32::Peripherals::take().unwrap();
