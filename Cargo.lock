@@ -128,7 +128,7 @@ dependencies = [
 [[package]]
 name = "pid"
 version = "1.2.1"
-source = "git+https://github.com/timboldt/pid-rs/#fdd21d491f7aad60544eb6785148d60ca51b6999"
+source = "git+https://github.com/braincore/pid-rs#96d10634884b746acc231b903aa08e1be6c2f92f"
 dependencies = [
  "num-traits 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -193,7 +193,7 @@ dependencies = [
  "mpu9250-i2c 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "nb 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "panic_rtt 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "pid 1.2.1 (git+https://github.com/timboldt/pid-rs/)",
+ "pid 1.2.1 (git+https://github.com/braincore/pid-rs)",
  "stm32f1xx-hal 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -295,7 +295,7 @@ dependencies = [
 "checksum nb 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "b1411551beb3c11dedfb0a90a0fa256b47d28b9ec2cdff34c25a2fa59e45dbdc"
 "checksum num-traits 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "0b3a5d7cc97d6d30d8b9bc8fa19bf45349ffe46241e8816f50f62f6d6aaabee1"
 "checksum panic_rtt 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ff15e84a05491e43119b628b40726d7e06fdf1d0ab60a777bd3a49f36cd1dfaf"
-"checksum pid 1.2.1 (git+https://github.com/timboldt/pid-rs/)" = "<none>"
+"checksum pid 1.2.1 (git+https://github.com/braincore/pid-rs)" = "<none>"
 "checksum proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)" = "cf3d2011ab5c909338f7887f4fc896d35932e29146c12c8d01da6b22a80ba759"
 "checksum quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)" = "faf4799c5d274f3868a4aae320a0a182cbd2baee377b378f080e16a23e9d80db"
 "checksum r0 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e2a38df5b15c8d5c7e8654189744d8e396bddc18ad48041a500ce52d6948941f"
