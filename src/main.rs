@@ -20,27 +20,26 @@
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
-// extern crate cortex_m_semihosting as sh;
 extern crate jlink_rtt;
-// extern crate madgwick;
+extern crate madgwick;
 extern crate mpu9250_i2c;
 #[macro_use(block)]
 extern crate nb;
 extern crate panic_rtt;
-//extern crate pid;
+extern crate pid;
 extern crate stm32f1xx_hal as hal;
 
 //use crate::hal::delay::Delay;
 use crate::hal::i2c::BlockingI2c;
-use crate::hal::time::MonoTimer;
-use crate::hal::timer::Timer;
 use crate::hal::prelude::*;
+//use crate::hal::time::MonoTimer;
+use crate::hal::timer::Timer;
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
-//use madgwick::{F32x3, Marg};
-use mpu9250_i2c::{calibration::Calibration, Mpu9250}; //vector::Vector, 
-//use pid::Pid;
+use madgwick::{F32x3, Marg};
+use mpu9250_i2c::{calibration::Calibration, Mpu9250, vector::Vector};
+use pid::Pid;
 
 #[entry]
 fn main() -> ! {
@@ -100,36 +99,25 @@ fn main() -> ! {
 
     // Use TIM1 as our periodic timer.
     let mut timer = Timer::tim1(dp.TIM1, 200.hz(), clocks, &mut rcc.apb2);
-    let mono = MonoTimer::new(cp.DWT, clocks);
+    //let mono = MonoTimer::new(cp.DWT, clocks);
 
-    let mut cnt = 0;
     loop {
-        //timer.start();
-        cnt += 1;
-        let start = mono.now();
+        //let start = mono.now();
 
         let (va, vg) = mpu.get_accel_gyro().unwrap();
         let _ = writeln!(
             output,
             "a/g: {} {} {} {} {} {}",
-            va.x,
-            va.y,
-            va.z,
-            vg.x,
-            vg.y,
-            vg.z,
+            va.x, va.y, va.z, vg.x, vg.y, vg.z,
         );
 
-        if cnt % 200 == 0 {
-            #[allow(deprecated)]
-            let _ = led.set_high();
-        } else if cnt % 100 == 0 {
-            #[allow(deprecated)]
-            let _ = led.set_low();
-        }
-        let elapsed = start.elapsed();
+        //let elapsed = start.elapsed();
         //let _ = writeln!(output, "elapsed: {}", elapsed);
+        #[allow(deprecated)]
+        led.set_low();
         block!(timer.wait()).unwrap();
+        #[allow(deprecated)]
+        led.set_high();
     }
 }
 

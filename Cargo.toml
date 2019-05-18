@@ -10,7 +10,7 @@ cortex-m = "0.6.0"
 cortex-m-rt = "0.6.8"
 jlink_rtt = "0.1.0"
 nb = "0.1.2"
-#madgwick = "0.1.1"
+madgwick = "0.1.1"
 mpu9250-i2c = "0.6.6"
 panic_rtt = "0.2.0"
 # The following is temporary until this crate is patched.
