@@ -71,10 +71,6 @@ fn main() -> ! {
     // User LED.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // Use TIM1 as our periodic timer.
-    let mut timer = Timer::tim1(dp.TIM1, 500.hz(), clocks, &mut rcc.apb2);
-    let mono = MonoTimer::new(cp.DWT, clocks);
-
     // MPU 9250 IMU
     let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
@@ -82,7 +78,7 @@ fn main() -> ! {
         dp.I2C2,
         (scl, sda),
         hal::i2c::Mode::Fast {
-            frequency: 400_000,
+            frequency: 100_000,
             duty_cycle: hal::i2c::DutyCycle::Ratio2to1,
         },
         clocks,
@@ -101,6 +97,10 @@ fn main() -> ! {
     //let mut ahrs = Marg::new(0.3, 0.01);
 
     //let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
+
+    // Use TIM1 as our periodic timer.
+    let mut timer = Timer::tim1(dp.TIM1, 200.hz(), clocks, &mut rcc.apb2);
+    let mono = MonoTimer::new(cp.DWT, clocks);
 
     let mut cnt = 0;
     loop {
@@ -128,8 +128,8 @@ fn main() -> ! {
             let _ = led.set_low();
         }
         let elapsed = start.elapsed();
+        //let _ = writeln!(output, "elapsed: {}", elapsed);
         block!(timer.wait()).unwrap();
-        let _ = writeln!(output, "elapsed: {}", elapsed);
     }
 }
 
