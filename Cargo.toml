@@ -15,6 +15,7 @@ mpu9250-i2c = "0.6.6"
 panic_rtt = "0.2.0"
 # The following is temporary until this crate is patched.
 pid = { git = "https://github.com/braincore/pid-rs" }
+embedded-hal = "0.2.3"
 
 [dependencies.stm32f1xx-hal]
 version = "0.3.0"

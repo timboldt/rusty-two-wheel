@@ -219,6 +219,7 @@ version = "0.2.0"
 dependencies = [
  "cortex-m 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cortex-m-rt 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "embedded-hal 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "jlink_rtt 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "madgwick 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "mpu9250-i2c 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)",

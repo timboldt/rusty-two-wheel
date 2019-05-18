@@ -38,11 +38,16 @@ use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
 use madgwick::{F32x3, Marg};
-use mpu9250_i2c::{calibration::Calibration, Mpu9250, vector::Vector};
+use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
+
+mod motor;
+use motor::Motor;
 
 #[entry]
 fn main() -> ! {
+    #[allow(unused_mut)]
+    #[allow(unused_variables)]
     let mut output = jlink_rtt::Output::new();
 
     let cp = cortex_m::Peripherals::take().unwrap();
@@ -50,6 +55,10 @@ fn main() -> ! {
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
+
+    //=========================================================
+    // Clocks
+    //=========================================================
 
     // Set up clock tree for maximum performance.
     // * 8MHz external crystal.
@@ -62,15 +71,45 @@ fn main() -> ! {
         .pclk1(36.mhz())
         .freeze(&mut flash.acr);
 
-    //let afio = dp.AFIO.constrain(&mut rcc.apb2);
-    //let gpioa = dp.GPIOA.split(&mut rcc.apb2);
+    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
+    let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
     let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
-    // User LED.
+    //=========================================================
+    // LED
+    //=========================================================
+
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // MPU 9250 IMU
+    //=========================================================
+    // Motors
+    //=========================================================
+
+    let (motor1_pwm, motor2_pwm, _, _) = dp.TIM4.pwm(
+        (
+            gpiob.pb6.into_alternate_push_pull(&mut gpiob.crl),
+            gpiob.pb7.into_alternate_push_pull(&mut gpiob.crl),
+            gpiob.pb8.into_alternate_push_pull(&mut gpiob.crh),
+            gpiob.pb9.into_alternate_push_pull(&mut gpiob.crh),
+        ),
+        &mut afio.mapr,
+        1.khz(),
+        clocks,
+        &mut rcc.apb1,
+    );
+    let motor1_dir1 = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+    let motor1_dir2 = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
+    let motor2_dir1 = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
+    let motor2_dir2 = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
+
+    let mut left_motor = Motor::new(motor1_dir1, motor1_dir2, motor1_pwm);
+    let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
+
+    //=========================================================
+    // MPU 9250 IMU (using I2C, for now)
+    //=========================================================
+
     let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
     let i2c = BlockingI2c::i2c2(
@@ -97,27 +136,46 @@ fn main() -> ! {
 
     //let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
 
+    //=========================================================
+    // Timers for pacing and benchmarking.
+    //=========================================================
+
     // Use TIM1 as our periodic timer.
     let mut timer = Timer::tim1(dp.TIM1, 200.hz(), clocks, &mut rcc.apb2);
+
+    // Use DWT for benchmarking.
     //let mono = MonoTimer::new(cp.DWT, clocks);
+    //let start = mono.now();
+    // ... do something ...
+    //let elapsed = start.elapsed();
+    //let _ = writeln!(output, "elapsed: {}", elapsed);
+
+    //=========================================================
+    // Main loop.
+    //=========================================================
 
     loop {
-        //let start = mono.now();
+        let (_va, _vg) = mpu.get_accel_gyro().unwrap();
+        // let _ = writeln!(
+        //     output,
+        //     "a/g: {} {} {} {} {} {}",
+        //     va.x, va.y, va.z, vg.x, vg.y, vg.z,
+        // );
 
-        let (va, vg) = mpu.get_accel_gyro().unwrap();
-        let _ = writeln!(
-            output,
-            "a/g: {} {} {} {} {} {}",
-            va.x, va.y, va.z, vg.x, vg.y, vg.z,
-        );
+        let speed = left_motor.get_max_duty() / 2;
+        left_motor.forward().duty(speed);
+        right_motor.duty(speed).reverse();
 
-        //let elapsed = start.elapsed();
-        //let _ = writeln!(output, "elapsed: {}", elapsed);
+        // We turn the LED on during the wait, which means the brightness is
+        // proportional to the idle time.
         #[allow(deprecated)]
-        led.set_low();
+        led.set_low(); // Inverted logic: ON.
+
+        // Wait for next period to start.
         block!(timer.wait()).unwrap();
+
         #[allow(deprecated)]
-        led.set_high();
+        led.set_high(); // Inverted logic: OFF.
     }
 }
 
