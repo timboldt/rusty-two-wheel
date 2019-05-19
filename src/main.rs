@@ -21,6 +21,7 @@ extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
 extern crate jlink_rtt;
+extern crate libm;
 extern crate madgwick;
 extern crate mpu9250_i2c;
 #[macro_use(block)]
@@ -34,6 +35,7 @@ use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, time::MonoTimer, timer:
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
+use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
@@ -151,8 +153,13 @@ fn main() -> ! {
         ..Default::default()
     };
 
-    let mpu = &mut Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
-    //let mut ahrs = Marg::new(0.3, 0.01);
+    let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
+    mpu.init().unwrap();
+    let mut ahrs = Marg::new(0.3, 0.01);
+
+    //=========================================================
+    // PID controllers.
+    //=========================================================
 
     //let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
 
@@ -164,34 +171,59 @@ fn main() -> ! {
     let mut timer = Timer::tim1(dp.TIM1, loop_frequency.hz(), clocks, &mut rcc.apb2);
 
     // Use DWT for benchmarking.
-    //let mono = MonoTimer::new(cp.DWT, clocks);
-    //let start = mono.now();
-    // ... do something ...
-    //let elapsed = start.elapsed();
-    //let _ = writeln!(output, "elapsed: {}", elapsed);
+    #[allow(unused_mut)]
+    #[allow(unused_variables)]
+    let mono = MonoTimer::new(cp.DWT, clocks);
 
     //=========================================================
     // Main loop.
     //=========================================================
 
     loop {
-        let (_va, _vg) = mpu.get_accel_gyro().unwrap();
+        let start = mono.now();
+
+        let (va, vg) = mpu.get_accel_gyro().unwrap();
+        let vm = mpu.get_mag().unwrap();
+        let deg_to_rad = core::f32::consts::PI / 180.0f32;
+        let q = ahrs.update(
+            F32x3 {
+                x: vm.x,
+                y: vm.y,
+                z: vm.z,
+            },
+            F32x3 {
+                x: vg.x * deg_to_rad,
+                y: vg.y * deg_to_rad,
+                z: vg.z * deg_to_rad,
+            },
+            F32x3 {
+                x: va.x,
+                y: va.y,
+                z: va.z,
+            },
+        );
+        let roll = f32::atan2(
+            2.0f32 * (q.0 * q.1 + q.2 * q.3),
+            1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
+        );
+        let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
+        let yaw = f32::atan2(
+            2.0f32 * (q.0 * q.3 + q.1 * q.2),
+            1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
+        );
+        let elapsed = start.elapsed();
+        let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
+
+        // left_wheel.update(left_encoder.count());
+        // right_wheel.update(right_encoder.count());
         // let _ = writeln!(
         //     output,
-        //     "a/g: {} {} {} {} {} {}",
-        //     va.x, va.y, va.z, vg.x, vg.y, vg.z,
+        //     "lo/ro/lv/rv: {} {} {} {}",
+        //     left_wheel.odometer(),
+        //     right_wheel.odometer(),
+        //     left_wheel.velocity(),
+        //     right_wheel.velocity()
         // );
-
-        left_wheel.update(left_encoder.count());
-        right_wheel.update(right_encoder.count());
-        let _ = writeln!(
-            output,
-            "lo/ro/lv/rv: {} {} {} {}",
-            left_wheel.odometer(),
-            right_wheel.odometer(),
-            left_wheel.velocity(),
-            right_wheel.velocity()
-        );
 
         // let speed = left_motor.get_max_duty();// / 2;
         // left_motor.forward().duty(speed);
