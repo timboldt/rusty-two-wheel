@@ -39,10 +39,17 @@ use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
 
 mod motor;
+mod wheel;
+
 use motor::Motor;
+use wheel::Wheel;
 
 #[entry]
 fn main() -> ! {
+    // Various constants.
+    let loop_frequency = 200;
+    let loop_millis = 1000 / loop_frequency;
+
     #[allow(unused_mut)]
     #[allow(unused_variables)]
     let mut output = jlink_rtt::NonBlockingOutput::new();
@@ -111,11 +118,13 @@ fn main() -> ! {
     let c1 = gpioa.pa0;
     let c2 = gpioa.pa1;
     let left_encoder = Qei::tim2(dp.TIM2, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+    let mut left_wheel = Wheel::new(left_encoder.count(), loop_millis);
 
     // TIM3
     let c1 = gpioa.pa6;
     let c2 = gpioa.pa7;
     let right_encoder = Qei::tim3(dp.TIM3, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+    let mut right_wheel = Wheel::new(right_encoder.count(), loop_millis);
 
     //=========================================================
     // MPU 9250 IMU (using I2C, for now)
@@ -152,7 +161,7 @@ fn main() -> ! {
     //=========================================================
 
     // Use TIM1 as our periodic timer.
-    let mut timer = Timer::tim1(dp.TIM1, 200.hz(), clocks, &mut rcc.apb2);
+    let mut timer = Timer::tim1(dp.TIM1, loop_frequency.hz(), clocks, &mut rcc.apb2);
 
     // Use DWT for benchmarking.
     //let mono = MonoTimer::new(cp.DWT, clocks);
@@ -173,13 +182,20 @@ fn main() -> ! {
         //     va.x, va.y, va.z, vg.x, vg.y, vg.z,
         // );
 
-        let left_odometer = left_encoder.count();
-        let right_odometer = right_encoder.count();
-        let _ = writeln!(output, "le/re: {} {}", left_odometer, right_odometer);
+        left_wheel.update(left_encoder.count());
+        right_wheel.update(right_encoder.count());
+        let _ = writeln!(
+            output,
+            "lo/ro/lv/rv: {} {} {} {}",
+            left_wheel.odometer(),
+            right_wheel.odometer(),
+            left_wheel.velocity(),
+            right_wheel.velocity()
+        );
 
-        let speed = left_motor.get_max_duty() / 2;
-        left_motor.forward().duty(speed);
-        right_motor.duty(speed).reverse();
+        // let speed = left_motor.get_max_duty();// / 2;
+        // left_motor.forward().duty(speed);
+        // right_motor.duty(speed).reverse();
 
         // We turn the LED on during the wait, which means the brightness is
         // proportional to the idle time.
