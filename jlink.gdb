@@ -1,4 +1,8 @@
+# Run GDB server like this:
+#   JLinkGDBServerCLExe -select USB -device STM32F103C8 -endian little -if SWD -speed 4000 -noir -noLocalhostOnly
+
 target extended-remote :2331
+#target remote :2331
 
 # print demangled symbols
 set print asm-demangle on
