@@ -161,7 +161,11 @@ fn main() -> ! {
     // PID controllers.
     //=========================================================
 
-    //let mut pid = Pid::new(1.0f32, 2.0f32, 3.0f32, 10.0f32, 10.0f32, 10.0f32);
+    // Output is an arbitrary scale of -100 to +100.
+    let mut tilt_pid = Pid::new(5.0f32, 0.25f32, 50.0f32, 100.0f32, 100.0f32, 100.0f32);
+    tilt_pid.update_setpoint(0.0f32);
+    let tilt_input_multiplier = 180.0f32 / core::f32::consts::PI;
+    let tilt_output_multiplier = left_motor.get_max_duty() as f32 / 100.0f32;
 
     //=========================================================
     // Timers for pacing and benchmarking.
@@ -179,8 +183,9 @@ fn main() -> ! {
     // Main loop.
     //=========================================================
 
+    writeln!(output, "Entering main loop...");
     loop {
-        let start = mono.now();
+        // let start = mono.now();
 
         let (va, vg) = mpu.get_accel_gyro().unwrap();
         let vm = mpu.get_mag().unwrap();
@@ -202,17 +207,38 @@ fn main() -> ! {
                 z: va.z,
             },
         );
-        let roll = f32::atan2(
-            2.0f32 * (q.0 * q.1 + q.2 * q.3),
-            1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
-        );
+        // let roll = f32::atan2(
+        //     2.0f32 * (q.0 * q.1 + q.2 * q.3),
+        //     1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
+        // );
         let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
-        let yaw = f32::atan2(
-            2.0f32 * (q.0 * q.3 + q.1 * q.2),
-            1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
-        );
-        let elapsed = start.elapsed();
-        let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
+        // let yaw = f32::atan2(
+        //     2.0f32 * (q.0 * q.3 + q.1 * q.2),
+        //     1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
+        // );
+        //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
+
+        let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
+        let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
+        if tilt_output.output > 0.0f32 {
+            left_motor.forward().duty(speed);
+            right_motor.forward().duty(speed);
+        } else {
+            left_motor.reverse().duty(speed);
+            right_motor.reverse().duty(speed);
+        }
+
+        // let elapsed = start.elapsed();
+        // let _ = writeln!(
+        //     output,
+        //     "ptch/p/i/d/out/elap: {} {} {} {} {} {}",
+        //     pitch * tilt_input_multiplier,
+        //     tilt_output.p,
+        //     tilt_output.i,
+        //     tilt_output.d,
+        //     tilt_output.output * tilt_output_multiplier,
+        //     elapsed
+        // );
 
         // left_wheel.update(left_encoder.count());
         // right_wheel.update(right_encoder.count());
@@ -224,10 +250,6 @@ fn main() -> ! {
         //     left_wheel.velocity(),
         //     right_wheel.velocity()
         // );
-
-        // let speed = left_motor.get_max_duty();// / 2;
-        // left_motor.forward().duty(speed);
-        // right_motor.duty(speed).reverse();
 
         // We turn the LED on during the wait, which means the brightness is
         // proportional to the idle time.
