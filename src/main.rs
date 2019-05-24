@@ -100,7 +100,7 @@ fn main() -> ! {
             gpiob.pb9.into_alternate_push_pull(&mut gpiob.crh),
         ),
         &mut afio.mapr,
-        1.khz(),
+        2.khz(),
         clocks,
         &mut rcc.apb1,
     );
@@ -138,8 +138,8 @@ fn main() -> ! {
         dp.I2C2,
         (scl, sda),
         hal::i2c::Mode::Fast {
-            frequency: 100_000,
-            duty_cycle: hal::i2c::DutyCycle::Ratio2to1,
+            frequency: 400_000,
+            duty_cycle: hal::i2c::DutyCycle::Ratio16to9,
         },
         clocks,
         &mut rcc.apb1,
@@ -161,7 +161,14 @@ fn main() -> ! {
     // PID controllers.
     //=========================================================
 
-    // Output is an arbitrary scale of -100 to +100.
+    // Distance PID takes wheel encoder odometry as input and returns the
+    // desired tilt angle in degrees.
+    let mut distance_pid = Pid::new(1.0f32, 0.0f32, 1000.0f32, 2.0f32, 2.0f32, 2.0f32);
+    distance_pid.update_setpoint(0.0f32);
+    let distance_input_multiplier = -0.0001f32;
+
+    // Tilt PID takes tilt angle in degrees as input and returns the desired
+    // wheel power on an arbitrary scale of -100 to +100.
     let mut tilt_pid = Pid::new(5.0f32, 0.25f32, 50.0f32, 100.0f32, 100.0f32, 100.0f32);
     tilt_pid.update_setpoint(0.0f32);
     let tilt_input_multiplier = 180.0f32 / core::f32::consts::PI;
@@ -185,7 +192,7 @@ fn main() -> ! {
 
     writeln!(output, "Entering main loop...");
     loop {
-        // let start = mono.now();
+        //let start = mono.now();
 
         let (va, vg) = mpu.get_accel_gyro().unwrap();
         let vm = mpu.get_mag().unwrap();
@@ -218,30 +225,43 @@ fn main() -> ! {
         // );
         //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
 
-        let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
-        let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
-        if tilt_output.output > 0.0f32 {
-            left_motor.forward().duty(speed);
-            right_motor.forward().duty(speed);
+        if pitch.abs() > 1.0f32 {
+            // If tilt is more than 1 radian (about 50 degrees), stop the motors.
+            left_motor.duty(0);
+            right_motor.duty(0);
+            distance_pid.reset_integral_term();
+            tilt_pid.reset_integral_term();
         } else {
-            left_motor.reverse().duty(speed);
-            right_motor.reverse().duty(speed);
+            // Set the desired tilt angle, based on the actual vs desired distance travelled.
+            left_wheel.update(left_encoder.count());
+            right_wheel.update(right_encoder.count());
+            let distance_travelled = left_wheel.odometer() + right_wheel.odometer();
+            let desired_tilt = distance_pid
+                .next_control_output(distance_travelled as f32 * distance_input_multiplier);
+
+            // Set the motor power, based on the actual vs desired tilt.
+            tilt_pid.update_setpoint(desired_tilt.output);
+            let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
+            let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
+            if tilt_output.output > 0.0f32 {
+                left_motor.forward().duty(speed);
+                right_motor.forward().duty(speed);
+            } else {
+                left_motor.reverse().duty(speed);
+                right_motor.reverse().duty(speed);
+            }
         }
 
-        // let elapsed = start.elapsed();
         // let _ = writeln!(
         //     output,
-        //     "ptch/p/i/d/out/elap: {} {} {} {} {} {}",
-        //     pitch * tilt_input_multiplier,
-        //     tilt_output.p,
-        //     tilt_output.i,
-        //     tilt_output.d,
-        //     tilt_output.output * tilt_output_multiplier,
-        //     elapsed
+        //     "in/p/i/d/out: {} {} {} {} {}",
+        //     distance_travelled as f32 * distance_input_multiplier,
+        //     desired_tilt.p,
+        //     desired_tilt.i,
+        //     desired_tilt.d,
+        //     desired_tilt.output,
         // );
 
-        // left_wheel.update(left_encoder.count());
-        // right_wheel.update(right_encoder.count());
         // let _ = writeln!(
         //     output,
         //     "lo/ro/lv/rv: {} {} {} {}",
