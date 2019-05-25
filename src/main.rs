@@ -28,6 +28,7 @@ extern crate mpu9250_i2c;
 extern crate nb;
 extern crate panic_rtt;
 extern crate pid;
+extern crate pscontroller_rs;
 extern crate stm32f1xx_hal as hal;
 
 //use crate::hal::delay::Delay;
@@ -39,6 +40,7 @@ use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
+use pscontroller_rs::{PlayStationPort, Device};
 
 mod motor;
 mod wheel;
@@ -111,6 +113,11 @@ fn main() -> ! {
 
     let mut left_motor = Motor::new(motor1_dir1, motor1_dir2, motor1_pwm);
     let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
+
+    //=========================================================
+    // SPI and PS/2 Joystick
+    //=========================================================
+
 
     //=========================================================
     // Wheel Encoders
