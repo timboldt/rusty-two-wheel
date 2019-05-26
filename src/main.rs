@@ -12,7 +12,7 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-#![deny(unsafe_code)]
+//#![deny(unsafe_code)]
 // #![deny(warnings)]
 #![no_std]
 #![no_main]
@@ -20,6 +20,7 @@
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
+extern crate embedded_hal;
 extern crate jlink_rtt;
 extern crate libm;
 extern crate madgwick;
@@ -31,8 +32,8 @@ extern crate pid;
 extern crate pscontroller_rs;
 extern crate stm32f1xx_hal as hal;
 
-//use crate::hal::delay::Delay;
-use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, time::MonoTimer, timer::Timer};
+use crate::embedded_hal::spi::MODE_3;
+use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, spi::Spi, time::MonoTimer, timer::Timer};
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
@@ -40,7 +41,7 @@ use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
-use pscontroller_rs::{PlayStationPort, Device};
+use pscontroller_rs::{dualshock::ControlDS, dualshock::DualShock2, Device, PlayStationPort};
 
 mod motor;
 mod wheel;
@@ -75,8 +76,8 @@ fn main() -> ! {
     let clocks = rcc
         .cfgr
         .use_hse(8.mhz())
-        .sysclk(72.mhz())
-        .pclk1(36.mhz())
+        .sysclk(48.mhz())
+        .pclk1(24.mhz())
         .freeze(&mut flash.acr);
 
     let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
@@ -94,92 +95,115 @@ fn main() -> ! {
     // Motors
     //=========================================================
 
-    let (motor1_pwm, motor2_pwm, _, _) = dp.TIM4.pwm(
-        (
-            gpiob.pb6.into_alternate_push_pull(&mut gpiob.crl),
-            gpiob.pb7.into_alternate_push_pull(&mut gpiob.crl),
-            gpiob.pb8.into_alternate_push_pull(&mut gpiob.crh),
-            gpiob.pb9.into_alternate_push_pull(&mut gpiob.crh),
-        ),
-        &mut afio.mapr,
-        2.khz(),
-        clocks,
-        &mut rcc.apb1,
-    );
-    let motor1_dir1 = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
-    let motor1_dir2 = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
-    let motor2_dir1 = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
-    let motor2_dir2 = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
+    // let (motor1_pwm, motor2_pwm, _, _) = dp.TIM4.pwm(
+    //     (
+    //         gpiob.pb6.into_alternate_push_pull(&mut gpiob.crl),
+    //         gpiob.pb7.into_alternate_push_pull(&mut gpiob.crl),
+    //         gpiob.pb8.into_alternate_push_pull(&mut gpiob.crh),
+    //         gpiob.pb9.into_alternate_push_pull(&mut gpiob.crh),
+    //     ),
+    //     &mut afio.mapr,
+    //     2.khz(),
+    //     clocks,
+    //     &mut rcc.apb1,
+    // );
+    // let motor1_dir1 = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+    // let motor1_dir2 = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
+    // let motor2_dir1 = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
+    // let motor2_dir2 = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
 
-    let mut left_motor = Motor::new(motor1_dir1, motor1_dir2, motor1_pwm);
-    let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
+    // let mut left_motor = Motor::new(motor1_dir1, motor1_dir2, motor1_pwm);
+    // let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
 
     //=========================================================
     // SPI and PS/2 Joystick
     //=========================================================
 
+    let nss = gpiob.pb12.into_push_pull_output(&mut gpiob.crh);
 
-    //=========================================================
-    // Wheel Encoders
-    //=========================================================
+    // SPI2
+    let sck = gpiob.pb13.into_alternate_push_pull(&mut gpiob.crh);
+    let miso = gpiob.pb14;
+    let mosi = gpiob.pb15.into_alternate_push_pull(&mut gpiob.crh);
 
-    // TIM2
-    let c1 = gpioa.pa0;
-    let c2 = gpioa.pa1;
-    let left_encoder = Qei::tim2(dp.TIM2, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
-    let mut left_wheel = Wheel::new(left_encoder.count(), loop_millis);
-
-    // TIM3
-    let c1 = gpioa.pa6;
-    let c2 = gpioa.pa7;
-    let right_encoder = Qei::tim3(dp.TIM3, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
-    let mut right_wheel = Wheel::new(right_encoder.count(), loop_millis);
-
-    //=========================================================
-    // MPU 9250 IMU (using I2C, for now)
-    //=========================================================
-
-    let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
-    let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-    let i2c = BlockingI2c::i2c2(
-        dp.I2C2,
-        (scl, sda),
-        hal::i2c::Mode::Fast {
-            frequency: 400_000,
-            duty_cycle: hal::i2c::DutyCycle::Ratio16to9,
-        },
+    let spi = Spi::spi2(
+        dp.SPI2,
+        (sck, miso, mosi),
+        MODE_3,
+        250.khz(),
         clocks,
         &mut rcc.apb1,
-        1_000,
-        2,
-        1_000,
-        1_000,
     );
 
-    let cal = Calibration {
-        ..Default::default()
-    };
+    let mut psp = PlayStationPort::new(spi, Some(nss));
+    let mut control_ds = ControlDS::new(false, 0);
+    let mut big: u8 = 0;
+    let mut small: bool = false;
+    control_ds.little = small;
+    control_ds.big = big;
+    psp.enable_pressure().unwrap();
 
-    let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
-    mpu.init().unwrap();
-    let mut ahrs = Marg::new(0.3, 0.01);
+    // //=========================================================
+    // // Wheel Encoders
+    // //=========================================================
 
-    //=========================================================
-    // PID controllers.
-    //=========================================================
+    // // TIM2
+    // let c1 = gpioa.pa0;
+    // let c2 = gpioa.pa1;
+    // let left_encoder = Qei::tim2(dp.TIM2, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+    // let mut left_wheel = Wheel::new(left_encoder.count(), loop_millis);
 
-    // Distance PID takes wheel encoder odometry as input and returns the
-    // desired tilt angle in degrees.
-    let mut distance_pid = Pid::new(1.0f32, 0.0f32, 1000.0f32, 2.0f32, 2.0f32, 2.0f32);
-    distance_pid.update_setpoint(0.0f32);
-    let distance_input_multiplier = -0.0001f32;
+    // // TIM3
+    // let c1 = gpioa.pa6;
+    // let c2 = gpioa.pa7;
+    // let right_encoder = Qei::tim3(dp.TIM3, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
+    // let mut right_wheel = Wheel::new(right_encoder.count(), loop_millis);
 
-    // Tilt PID takes tilt angle in degrees as input and returns the desired
-    // wheel power on an arbitrary scale of -100 to +100.
-    let mut tilt_pid = Pid::new(5.0f32, 0.25f32, 50.0f32, 100.0f32, 100.0f32, 100.0f32);
-    tilt_pid.update_setpoint(0.0f32);
-    let tilt_input_multiplier = 180.0f32 / core::f32::consts::PI;
-    let tilt_output_multiplier = left_motor.get_max_duty() as f32 / 100.0f32;
+    // //=========================================================
+    // // MPU 9250 IMU (using I2C, for now)
+    // //=========================================================
+
+    // let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+    // let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+    // let i2c = BlockingI2c::i2c2(
+    //     dp.I2C2,
+    //     (scl, sda),
+    //     hal::i2c::Mode::Fast {
+    //         frequency: 400_000,
+    //         duty_cycle: hal::i2c::DutyCycle::Ratio16to9,
+    //     },
+    //     clocks,
+    //     &mut rcc.apb1,
+    //     1_000,
+    //     2,
+    //     1_000,
+    //     1_000,
+    // );
+
+    // let cal = Calibration {
+    //     ..Default::default()
+    // };
+
+    // let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
+    // mpu.init().unwrap();
+    // let mut ahrs = Marg::new(0.3, 0.01);
+
+    // //=========================================================
+    // // PID controllers.
+    // //=========================================================
+
+    // // Distance PID takes wheel encoder odometry as input and returns the
+    // // desired tilt angle in degrees.
+    // let mut distance_pid = Pid::new(1.0f32, 0.0f32, 1000.0f32, 2.0f32, 2.0f32, 2.0f32);
+    // distance_pid.update_setpoint(0.0f32);
+    // let distance_input_multiplier = -0.0001f32;
+
+    // // Tilt PID takes tilt angle in degrees as input and returns the desired
+    // // wheel power on an arbitrary scale of -100 to +100.
+    // let mut tilt_pid = Pid::new(5.0f32, 0.25f32, 50.0f32, 100.0f32, 100.0f32, 100.0f32);
+    // tilt_pid.update_setpoint(0.0f32);
+    // let tilt_input_multiplier = 180.0f32 / core::f32::consts::PI;
+    // let tilt_output_multiplier = left_motor.get_max_duty() as f32 / 100.0f32;
 
     //=========================================================
     // Timers for pacing and benchmarking.
@@ -201,63 +225,68 @@ fn main() -> ! {
     loop {
         //let start = mono.now();
 
-        let (va, vg) = mpu.get_accel_gyro().unwrap();
-        let vm = mpu.get_mag().unwrap();
-        let deg_to_rad = core::f32::consts::PI / 180.0f32;
-        let q = ahrs.update(
-            F32x3 {
-                x: vm.x,
-                y: vm.y,
-                z: vm.z,
-            },
-            F32x3 {
-                x: vg.x * deg_to_rad,
-                y: vg.y * deg_to_rad,
-                z: vg.z * deg_to_rad,
-            },
-            F32x3 {
-                x: va.x,
-                y: va.y,
-                z: va.z,
-            },
-        );
-        // let roll = f32::atan2(
-        //     2.0f32 * (q.0 * q.1 + q.2 * q.3),
-        //     1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
-        // );
-        let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
-        // let yaw = f32::atan2(
-        //     2.0f32 * (q.0 * q.3 + q.1 * q.2),
-        //     1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
-        // );
-        //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
-
-        if pitch.abs() > 1.0f32 {
-            // If tilt is more than 1 radian (about 50 degrees), stop the motors.
-            left_motor.duty(0);
-            right_motor.duty(0);
-            distance_pid.reset_integral_term();
-            tilt_pid.reset_integral_term();
-        } else {
-            // Set the desired tilt angle, based on the actual vs desired distance travelled.
-            left_wheel.update(left_encoder.count());
-            right_wheel.update(right_encoder.count());
-            let distance_travelled = left_wheel.odometer() + right_wheel.odometer();
-            let desired_tilt = distance_pid
-                .next_control_output(distance_travelled as f32 * distance_input_multiplier);
-
-            // Set the motor power, based on the actual vs desired tilt.
-            tilt_pid.update_setpoint(desired_tilt.output);
-            let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
-            let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
-            if tilt_output.output > 0.0f32 {
-                left_motor.forward().duty(speed);
-                right_motor.forward().duty(speed);
-            } else {
-                left_motor.reverse().duty(speed);
-                right_motor.reverse().duty(speed);
-            }
+        let controller_data = psp.read_raw(Some(&control_ds)).unwrap();
+        unsafe {
+            writeln!(output, "DualShock2 {:#?}", controller_data.data);
         }
+
+        // let (va, vg) = mpu.get_accel_gyro().unwrap();
+        // let vm = mpu.get_mag().unwrap();
+        // let deg_to_rad = core::f32::consts::PI / 180.0f32;
+        // let q = ahrs.update(
+        //     F32x3 {
+        //         x: vm.x,
+        //         y: vm.y,
+        //         z: vm.z,
+        //     },
+        //     F32x3 {
+        //         x: vg.x * deg_to_rad,
+        //         y: vg.y * deg_to_rad,
+        //         z: vg.z * deg_to_rad,
+        //     },
+        //     F32x3 {
+        //         x: va.x,
+        //         y: va.y,
+        //         z: va.z,
+        //     },
+        // );
+        // // let roll = f32::atan2(
+        // //     2.0f32 * (q.0 * q.1 + q.2 * q.3),
+        // //     1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
+        // // );
+        // let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
+        // // let yaw = f32::atan2(
+        // //     2.0f32 * (q.0 * q.3 + q.1 * q.2),
+        // //     1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
+        // // );
+        // //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
+
+        // if pitch.abs() > 1.0f32 {
+        //     // If tilt is more than 1 radian (about 50 degrees), stop the motors.
+        //     left_motor.duty(0);
+        //     right_motor.duty(0);
+        //     distance_pid.reset_integral_term();
+        //     tilt_pid.reset_integral_term();
+        // } else {
+        //     // Set the desired tilt angle, based on the actual vs desired distance travelled.
+        //     left_wheel.update(left_encoder.count());
+        //     right_wheel.update(right_encoder.count());
+        //     let distance_travelled = left_wheel.odometer() + right_wheel.odometer();
+        //     let desired_tilt = distance_pid
+        //         .next_control_output(distance_travelled as f32 * distance_input_multiplier);
+
+        //     // Set the motor power, based on the actual vs desired tilt.
+        //     tilt_pid.update_setpoint(desired_tilt.output);
+        //     let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
+        //     let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
+        //     if tilt_output.output > 0.0f32 {
+        //         left_motor.forward().duty(speed);
+        //         right_motor.forward().duty(speed);
+        //     } else {
+        //         left_motor.reverse().duty(speed);
+        //         right_motor.reverse().duty(speed);
+        //     }
+        // }
 
         // let _ = writeln!(
         //     output,
