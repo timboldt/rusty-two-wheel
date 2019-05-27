@@ -39,6 +39,8 @@ use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
+use ssd1306::prelude::*;
+use ssd1306::Builder;
 
 mod motor;
 mod wheel;
@@ -73,8 +75,8 @@ fn main() -> ! {
     let clocks = rcc
         .cfgr
         .use_hse(8.mhz())
-        .sysclk(72.mhz())
-        .pclk1(36.mhz())
+        .sysclk(48.mhz())
+        .pclk1(24.mhz())
         .freeze(&mut flash.acr);
 
     let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
@@ -129,7 +131,7 @@ fn main() -> ! {
     let mut right_wheel = Wheel::new(right_encoder.count(), loop_millis);
 
     //=========================================================
-    // MPU 9250 IMU (using I2C, for now)
+    // I2C Bus
     //=========================================================
 
     let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
@@ -149,13 +151,25 @@ fn main() -> ! {
         1_000,
     );
 
-    let cal = Calibration {
-        ..Default::default()
-    };
+    //=========================================================
+    // SSD1306 OLED Display
+    //=========================================================
 
-    let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
-    mpu.init().unwrap();
-    let mut ahrs = Marg::new(0.3, 0.01);
+    let mut disp: TerminalMode<_> = Builder::new().connect_i2c(i2c).into();
+    disp.init().unwrap();
+    let _ = disp.clear();
+
+    //=========================================================
+    // MPU 9250 IMU (using I2C, for now)
+    //=========================================================
+
+    // let cal = Calibration {
+    //     ..Default::default()
+    // };
+
+    // let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
+    // mpu.init().unwrap();
+    // let mut ahrs = Marg::new(0.3, 0.01);
 
     //=========================================================
     // PID controllers.
@@ -191,66 +205,70 @@ fn main() -> ! {
     //=========================================================
 
     writeln!(output, "Entering main loop...");
+    let _ = disp.write_str("Hello World!");
+    let _ = disp.write_str("Hello World!");
+    let _ = disp.write_str("Hello World!");
+
     loop {
-        //let start = mono.now();
+        let start = mono.now();
 
-        let (va, vg) = mpu.get_accel_gyro().unwrap();
-        let vm = mpu.get_mag().unwrap();
-        let deg_to_rad = core::f32::consts::PI / 180.0f32;
-        let q = ahrs.update(
-            F32x3 {
-                x: vm.x,
-                y: vm.y,
-                z: vm.z,
-            },
-            F32x3 {
-                x: vg.x * deg_to_rad,
-                y: vg.y * deg_to_rad,
-                z: vg.z * deg_to_rad,
-            },
-            F32x3 {
-                x: va.x,
-                y: va.y,
-                z: va.z,
-            },
-        );
-        // let roll = f32::atan2(
-        //     2.0f32 * (q.0 * q.1 + q.2 * q.3),
-        //     1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
+        // let (va, vg) = mpu.get_accel_gyro().unwrap();
+        // let vm = mpu.get_mag().unwrap();
+        // let deg_to_rad = core::f32::consts::PI / 180.0f32;
+        // let q = ahrs.update(
+        //     F32x3 {
+        //         x: vm.x,
+        //         y: vm.y,
+        //         z: vm.z,
+        //     },
+        //     F32x3 {
+        //         x: vg.x * deg_to_rad,
+        //         y: vg.y * deg_to_rad,
+        //         z: vg.z * deg_to_rad,
+        //     },
+        //     F32x3 {
+        //         x: va.x,
+        //         y: va.y,
+        //         z: va.z,
+        //     },
         // );
-        let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
-        // let yaw = f32::atan2(
-        //     2.0f32 * (q.0 * q.3 + q.1 * q.2),
-        //     1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
-        // );
-        //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
+        // // let roll = f32::atan2(
+        // //     2.0f32 * (q.0 * q.1 + q.2 * q.3),
+        // //     1.0f32 - 2.0f32 * (q.1 * q.1 + q.2 * q.2),
+        // // );
+        // let pitch = f32::asin(2.0f32 * (q.0 * q.2 - q.1 * q.3));
+        // // let yaw = f32::atan2(
+        // //     2.0f32 * (q.0 * q.3 + q.1 * q.2),
+        // //     1.0f32 - 2.0f32 * (q.2 * q.2 + q.3 * q.3),
+        // // );
+        // //let _ = writeln!(output, "r/p/y: {} {} {} {}", roll, pitch, yaw, elapsed);
 
-        if pitch.abs() > 1.0f32 {
-            // If tilt is more than 1 radian (about 50 degrees), stop the motors.
-            left_motor.duty(0);
-            right_motor.duty(0);
-            distance_pid.reset_integral_term();
-            tilt_pid.reset_integral_term();
-        } else {
-            // Set the desired tilt angle, based on the actual vs desired distance travelled.
-            left_wheel.update(left_encoder.count());
-            right_wheel.update(right_encoder.count());
-            let distance_travelled = left_wheel.odometer() + right_wheel.odometer();
-            let desired_tilt = distance_pid
-                .next_control_output(distance_travelled as f32 * distance_input_multiplier);
+        // if pitch.abs() > 1.0f32 {
+        //     // If tilt is more than 1 radian (about 50 degrees), stop the motors.
+        //     left_motor.duty(0);
+        //     right_motor.duty(0);
+        //     distance_pid.reset_integral_term();
+        //     tilt_pid.reset_integral_term();
+        // } else {
+        //     // Set the desired tilt angle, based on the actual vs desired distance travelled.
+        //     left_wheel.update(left_encoder.count());
+        //     right_wheel.update(right_encoder.count());
+        //     let distance_travelled = left_wheel.odometer() + right_wheel.odometer();
+        //     let desired_tilt = distance_pid
+        //         .next_control_output(distance_travelled as f32 * distance_input_multiplier);
 
-            // Set the motor power, based on the actual vs desired tilt.
-            tilt_pid.update_setpoint(desired_tilt.output);
-            let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
-            let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
-            if tilt_output.output > 0.0f32 {
-                left_motor.forward().duty(speed);
-                right_motor.forward().duty(speed);
-            } else {
-                left_motor.reverse().duty(speed);
-                right_motor.reverse().duty(speed);
-            }
-        }
+        //     // Set the motor power, based on the actual vs desired tilt.
+        //     tilt_pid.update_setpoint(desired_tilt.output);
+        //     let tilt_output = tilt_pid.next_control_output(pitch * tilt_input_multiplier);
+        //     let speed = (tilt_output.output * tilt_output_multiplier).abs() as u16;
+        //     if tilt_output.output > 0.0f32 {
+        //         left_motor.forward().duty(speed);
+        //         right_motor.forward().duty(speed);
+        //     } else {
+        //         left_motor.reverse().duty(speed);
+        //         right_motor.reverse().duty(speed);
+        //     }
+        // }
 
         // let _ = writeln!(
         //     output,
@@ -270,6 +288,9 @@ fn main() -> ! {
         //     left_wheel.velocity(),
         //     right_wheel.velocity()
         // );
+
+        let elapsed = start.elapsed();
+        let _ = writeln!(output, "elapsed: {}", elapsed);
 
         // We turn the LED on during the wait, which means the brightness is
         // proportional to the idle time.

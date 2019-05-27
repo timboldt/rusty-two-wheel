@@ -17,6 +17,8 @@ panic_rtt = "0.2.0"
 pid = { git = "https://github.com/braincore/pid-rs" }
 embedded-hal = "0.2.3"
 libm = "0.1.3"
+ssd1306 = "0.2.4"
+shared-bus = "0.1.4"
 
 [dependencies.stm32f1xx-hal]
 version = "0.3.0"
