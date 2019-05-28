@@ -19,13 +19,14 @@
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
+extern crate embedded_hal;
 #[macro_use(block)]
 extern crate nb;
 extern crate panic_rtt;
 extern crate stm32f1xx_hal as hal;
 
-//use crate::hal::delay::Delay;
-use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, time::MonoTimer, timer::Timer};
+use crate::embedded_hal::spi::MODE_3;
+use crate::hal::{i2c::BlockingI2c, prelude::*, qei::Qei, spi::Spi, time::MonoTimer, timer::Timer};
 use crate::rt::{entry, ExceptionFrame};
 
 use core::fmt::Write;
@@ -33,6 +34,7 @@ use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
+use pscontroller_rs::{dualshock::ControlDS, dualshock::DualShock2, Device, PlayStationPort};
 use ssd1306::prelude::*;
 use ssd1306::Builder;
 
@@ -62,15 +64,15 @@ fn main() -> ! {
     // Clocks
     //=========================================================
 
-    // Set up clock tree for maximum performance.
+    // Set up clock tree.
     // * 8MHz external crystal.
-    // * System clock at its maximum value of 72MHz.
-    // * APB1 peripheral clock restricted to its maximum value of 36MHz.
+    // * System clock at 48MHz (maximum value is 72MHz).
+    // * APB1 peripheral clock at 24MHz (maximum value is 36MHz).
     let clocks = rcc
         .cfgr
         .use_hse(8.mhz())
-        .sysclk(72.mhz())
-        .pclk1(36.mhz())
+        .sysclk(48.mhz())
+        .pclk1(24.mhz())
         .freeze(&mut flash.acr);
 
     let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
@@ -117,6 +119,27 @@ fn main() -> ! {
     let _ = disp.write_char('l');
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     let _ = disp.write_char('L');
+
+    //=========================================================
+    // SPI Bus
+    //=========================================================
+
+    let _ = disp.write_char('s');
+
+    // SPI2
+    let sck = gpiob.pb13.into_alternate_push_pull(&mut gpiob.crh);
+    let miso = gpiob.pb14;
+    let mosi = gpiob.pb15.into_alternate_push_pull(&mut gpiob.crh);
+    let spi = Spi::spi2(
+        dp.SPI2,
+        (sck, miso, mosi),
+        MODE_3,
+        250.khz(),
+        clocks,
+        &mut rcc.apb1,
+    );
+
+    let _ = disp.write_char('S');
 
     //=========================================================
     // Motors
@@ -180,10 +203,28 @@ fn main() -> ! {
         cal,
     )
     .unwrap();
-    mpu.init().unwrap();
+    // DISABLED!! mpu.init().unwrap();
     let mut ahrs = Marg::new(0.3, 0.01);
 
     let _ = disp.write_char('I');
+
+    //=========================================================
+    // PS/2 Joystick
+    //=========================================================
+
+    let _ = disp.write_char('j');
+
+    let nss = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
+    //let nss = gpioa.pa15.into_push_pull_output(&mut gpioa.crh);
+    let mut psp = PlayStationPort::new(spi, Some(nss));
+    let mut control_ds = ControlDS::new(false, 0);
+    let mut big: u8 = 0;
+    let mut small: bool = false;
+    control_ds.little = small;
+    control_ds.big = big;
+    psp.enable_pressure().unwrap();
+
+    let _ = disp.write_char('J');
 
     //=========================================================
     // PID controllers.
@@ -226,7 +267,7 @@ fn main() -> ! {
     // Main loop.
     //=========================================================
 
-    let _ = disp.write_str("    Main loop...    ");
+    let _ = disp.write_str("Main loop...    ");
     loop {
         //let start = mono.now();
 

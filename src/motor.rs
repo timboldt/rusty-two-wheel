@@ -17,7 +17,7 @@
 
 extern crate embedded_hal;
 
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::OutputPin;
 use embedded_hal::PwmPin;
 
 /// A full L298 H-bridge motor driver.
