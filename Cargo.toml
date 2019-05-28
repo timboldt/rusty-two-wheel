@@ -18,7 +18,10 @@ pid = { git = "https://github.com/braincore/pid-rs" }
 embedded-hal = "0.2.3"
 libm = "0.1.3"
 ssd1306 = "0.2.4"
-shared-bus = "0.1.4"
+
+[dependencies.shared-bus]
+version = "0.1.4"
+features = ["cortexm"]
 
 [dependencies.stm32f1xx-hal]
 version = "0.3.0"
@@ -31,7 +34,7 @@ test = false
 bench = false
 
 [profile.dev]
-opt-level = 2
+opt-level = 1
 
 [profile.release]
 codegen-units = 1 # better optimizations
