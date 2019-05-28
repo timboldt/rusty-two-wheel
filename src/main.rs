@@ -13,21 +13,15 @@
 //  limitations under the License.
 
 #![deny(unsafe_code)]
-// #![deny(warnings)]
 #![no_std]
 #![no_main]
 
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
-extern crate jlink_rtt;
-extern crate libm;
-extern crate madgwick;
-extern crate mpu9250_i2c;
 #[macro_use(block)]
 extern crate nb;
 extern crate panic_rtt;
-extern crate pid;
 extern crate stm32f1xx_hal as hal;
 
 //use crate::hal::delay::Delay;
@@ -39,6 +33,8 @@ use libm::F32Ext;
 use madgwick::{F32x3, Marg};
 use mpu9250_i2c::{calibration::Calibration, vector::Vector, Mpu9250};
 use pid::Pid;
+use ssd1306::prelude::*;
+use ssd1306::Builder;
 
 mod motor;
 mod wheel;
@@ -83,15 +79,50 @@ fn main() -> ! {
     let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
     //=========================================================
+    // I2C Bus
+    //=========================================================
+
+    let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+    let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+    let i2c = BlockingI2c::i2c2(
+        dp.I2C2,
+        (scl, sda),
+        hal::i2c::Mode::Fast {
+            frequency: 400_000,
+            duty_cycle: hal::i2c::DutyCycle::Ratio2to1,
+        },
+        clocks,
+        &mut rcc.apb1,
+        1_000,
+        2,
+        1_000,
+        1_000,
+    );
+
+    let i2c_bus = shared_bus::CortexMBusManager::new(i2c);
+
+    //=========================================================
+    // SSD1306 OLED Display
+    //=========================================================
+
+    let mut disp: TerminalMode<_> = Builder::new().connect_i2c(i2c_bus.acquire()).into();
+    disp.init().unwrap();
+    let _ = disp.clear();
+    let _ = disp.write_str("Initializing... ");
+
+    //=========================================================
     // LED
     //=========================================================
 
+    let _ = disp.write_char('l');
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    let _ = disp.write_char('L');
 
     //=========================================================
     // Motors
     //=========================================================
 
+    let _ = disp.write_char('m');
     let (motor1_pwm, motor2_pwm, _, _) = dp.TIM4.pwm(
         (
             gpiob.pb6.into_alternate_push_pull(&mut gpiob.crl),
@@ -111,10 +142,13 @@ fn main() -> ! {
 
     let mut left_motor = Motor::new(motor1_dir1, motor1_dir2, motor1_pwm);
     let mut right_motor = Motor::new(motor2_dir1, motor2_dir2, motor2_pwm);
+    let _ = disp.write_char('M');
 
     //=========================================================
     // Wheel Encoders
     //=========================================================
+
+    let _ = disp.write_char('e');
 
     // TIM2
     let c1 = gpioa.pa0;
@@ -128,38 +162,34 @@ fn main() -> ! {
     let right_encoder = Qei::tim3(dp.TIM3, (c1, c2), &mut afio.mapr, &mut rcc.apb1);
     let mut right_wheel = Wheel::new(right_encoder.count(), loop_millis);
 
+    let _ = disp.write_char('E');
+
     //=========================================================
-    // MPU 9250 IMU (using I2C, for now)
+    // MPU 9250 IMU
     //=========================================================
 
-    let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
-    let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-    let i2c = BlockingI2c::i2c2(
-        dp.I2C2,
-        (scl, sda),
-        hal::i2c::Mode::Fast {
-            frequency: 400_000,
-            duty_cycle: hal::i2c::DutyCycle::Ratio16to9,
-        },
-        clocks,
-        &mut rcc.apb1,
-        1_000,
-        2,
-        1_000,
-        1_000,
-    );
+    let _ = disp.write_char('i');
 
     let cal = Calibration {
         ..Default::default()
     };
 
-    let mut mpu = Mpu9250::new(i2c, hal::delay::Delay::new(cp.SYST, clocks), cal).unwrap();
+    let mut mpu = Mpu9250::new(
+        i2c_bus.acquire(),
+        hal::delay::Delay::new(cp.SYST, clocks),
+        cal,
+    )
+    .unwrap();
     mpu.init().unwrap();
     let mut ahrs = Marg::new(0.3, 0.01);
+
+    let _ = disp.write_char('I');
 
     //=========================================================
     // PID controllers.
     //=========================================================
+
+    let _ = disp.write_char('p');
 
     // Distance PID takes wheel encoder odometry as input and returns the
     // desired tilt angle in degrees.
@@ -174,9 +204,13 @@ fn main() -> ! {
     let tilt_input_multiplier = 180.0f32 / core::f32::consts::PI;
     let tilt_output_multiplier = left_motor.get_max_duty() as f32 / 100.0f32;
 
+    let _ = disp.write_char('P');
+
     //=========================================================
     // Timers for pacing and benchmarking.
     //=========================================================
+
+    let _ = disp.write_char('t');
 
     // Use TIM1 as our periodic timer.
     let mut timer = Timer::tim1(dp.TIM1, loop_frequency.hz(), clocks, &mut rcc.apb2);
@@ -186,11 +220,13 @@ fn main() -> ! {
     #[allow(unused_variables)]
     let mono = MonoTimer::new(cp.DWT, clocks);
 
+    let _ = disp.write_char('T');
+
     //=========================================================
     // Main loop.
     //=========================================================
 
-    writeln!(output, "Entering main loop...");
+    let _ = disp.write_str("    Main loop...    ");
     loop {
         //let start = mono.now();
 
